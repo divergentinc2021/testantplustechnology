@@ -226,7 +226,7 @@
 
         .metrics {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 10px;
             margin-bottom: 15px;
         }
@@ -370,6 +370,23 @@
             margin-bottom: 10px;
         }
 
+        .resistance-btn {
+            background: #34495e;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            min-width: 50px;
+        }
+
+        .resistance-btn:hover {
+            background: #2c3e50;
+            transform: scale(1.05);
+        }
+
         .hex-display {
             font-family: 'Courier New', monospace;
             background: #34495e;
@@ -459,6 +476,14 @@
                         <div class="metric-value" id="speed-value">0.0</div>
                         <div class="metric-label">Speed (km/h)</div>
                     </div>
+                    <div class="metric">
+                        <div class="metric-value" id="distance-value">0.00</div>
+                        <div class="metric-label">Distance (km)</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="time-value">00:00:00</div>
+                        <div class="metric-label">Time</div>
+                    </div>
                 </div>
 
                 <div class="controls">
@@ -468,7 +493,12 @@
                     </div>
                     <div class="control-group">
                         <label class="control-label">Resistance (%)</label>
-                        <input type="range" class="control-input" id="resistance-slider" min="0" max="100" value="0">
+                        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                            <button class="resistance-btn" onclick="adjustResistance(-10)">-10%</button>
+                            <input type="range" class="control-input" id="resistance-slider" min="0" max="100" value="0" style="flex: 1;">
+                            <button class="resistance-btn" onclick="adjustResistance(10)">+10%</button>
+                        </div>
+                        <input type="number" class="control-input" id="resistance-input" value="0" min="0" max="100" placeholder="Enter resistance %">
                     </div>
                 </div>
 
@@ -636,7 +666,10 @@
                 speed: 0,
                 resistance: 0,
                 targetPower: 150,
-                eventCount: 0
+                eventCount: 0,
+                distance: 0,
+                startTime: null,
+                elapsedTime: 0
             },
             shifter: {
                 active: false,
@@ -944,7 +977,17 @@
         }
 
         function startTrainerBroadcast() {
+            // Reset distance and start timer
+            devices.trainer.distance = 0;
+            devices.trainer.startTime = Date.now();
+            devices.trainer.elapsedTime = 0;
+            
             intervals.trainer = setInterval(async () => {
+                // Calculate elapsed time
+                if (devices.trainer.startTime) {
+                    devices.trainer.elapsedTime = Date.now() - devices.trainer.startTime;
+                }
+                
                 // Simulate realistic trainer behavior
                 const targetPower = parseInt(document.getElementById('target-power').value);
                 const resistance = parseInt(document.getElementById('resistance-slider').value);
@@ -954,11 +997,18 @@
                 devices.trainer.speed = (devices.trainer.power / 10) + (Math.random() * 2);
                 devices.trainer.resistance = resistance;
                 
+                // Calculate distance (speed in km/h, interval in ms, convert to km)
+                const speedKmh = devices.trainer.speed;
+                const intervalHours = 0.25 / 3600; // 250ms in hours
+                devices.trainer.distance += speedKmh * intervalHours;
+                
                 // Update UI
                 document.getElementById('power-value').textContent = Math.round(devices.trainer.power);
                 document.getElementById('cadence-value').textContent = Math.round(devices.trainer.cadence);
                 document.getElementById('speed-value').textContent = devices.trainer.speed.toFixed(1);
                 document.getElementById('resistance-value').textContent = resistance;
+                document.getElementById('distance-value').textContent = devices.trainer.distance.toFixed(2);
+                document.getElementById('time-value').textContent = formatTime(devices.trainer.elapsedTime);
                 
                 // Broadcast ANT+ data
                 await broadcastDeviceData('trainer');
@@ -1116,6 +1166,30 @@
             }
         }
 
+        // Resistance adjustment functions
+        function adjustResistance(change) {
+            const slider = document.getElementById('resistance-slider');
+            const input = document.getElementById('resistance-input');
+            let currentValue = parseInt(slider.value);
+            let newValue = Math.max(0, Math.min(100, currentValue + change));
+            
+            slider.value = newValue;
+            input.value = newValue;
+            document.getElementById('resistance-value').textContent = newValue;
+            
+            log(`🎛️ Resistance adjusted to ${newValue}% (${change > 0 ? '+' : ''}${change}%)`);
+        }
+
+        // Time formatting function
+        function formatTime(milliseconds) {
+            const totalSeconds = Math.floor(milliseconds / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
         // Utility functions
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
@@ -1139,6 +1213,22 @@
         // Update resistance display
         document.getElementById('resistance-slider').addEventListener('input', function() {
             document.getElementById('resistance-value').textContent = this.value;
+            document.getElementById('resistance-input').value = this.value;
+        });
+
+        // Update resistance from number input
+        document.getElementById('resistance-input').addEventListener('input', function() {
+            let value = Math.max(0, Math.min(100, parseInt(this.value) || 0));
+            this.value = value;
+            document.getElementById('resistance-slider').value = value;
+            document.getElementById('resistance-value').textContent = value;
+        });
+
+        // Handle Enter key on resistance input
+        document.getElementById('resistance-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                this.blur(); // Trigger the input event
+            }
         });
 
         log('🚀 ANT+ Device Emulator Pro initialized');
